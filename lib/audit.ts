@@ -1,5 +1,28 @@
 import { db } from "@/db";
 import { platformAuditLogs, auditLogs } from "@/db/schema";
+import { lt } from "drizzle-orm";
+
+/**
+ * Purge audit logs older than the specified retention window (default: 2 days)
+ * to keep database storage footprint lightweight.
+ */
+export async function purgeExpiredAuditLogs(retentionDays: number = 2) {
+  try {
+    const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    // Remove expired platform audit entries
+    await db
+      .delete(platformAuditLogs)
+      .where(lt(platformAuditLogs.createdAt, cutoffDate));
+
+    // Remove expired tenant/society audit entries
+    await db
+      .delete(auditLogs)
+      .where(lt(auditLogs.createdAt, cutoffDate));
+  } catch (error) {
+    console.error("Failed to purge expired audit logs:", error);
+  }
+}
 
 export async function logPlatformAction(params: {
   platformUserId?: string;

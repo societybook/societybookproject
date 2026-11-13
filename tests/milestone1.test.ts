@@ -13,7 +13,9 @@ import {
   users,
   societyRoles,
   userSocietyRoles,
+  platformAuditLogs,
 } from "../db/schema";
+import { purgeExpiredAuditLogs } from "../lib/audit";
 import { hashPassword, verifyPassword } from "../lib/auth/password";
 import { signAccessToken, verifyAccessToken } from "../lib/auth/tokens";
 import { eq, and } from "drizzle-orm";
@@ -207,5 +209,50 @@ describe("Milestone 1 — Authentication & Multi-Tenancy Core Tests", () => {
       );
 
     expect(membershipInSocietyB.length).toBe(0);
+  });
+
+  it("automatically purges audit logs older than 2 days to optimize storage", async () => {
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const recentDate = new Date();
+
+    // Insert an expired log entry (3 days old)
+    const [oldLog] = await db
+      .insert(platformAuditLogs)
+      .values({
+        action: "test.old.action",
+        entityType: "test",
+        createdAt: threeDaysAgo,
+      })
+      .returning();
+
+    // Insert a fresh log entry
+    const [newLog] = await db
+      .insert(platformAuditLogs)
+      .values({
+        action: "test.recent.action",
+        entityType: "test",
+        createdAt: recentDate,
+      })
+      .returning();
+
+    // Run purge for logs older than 2 days
+    await purgeExpiredAuditLogs(2);
+
+    // Verify old log is deleted
+    const oldFound = await db
+      .select()
+      .from(platformAuditLogs)
+      .where(eq(platformAuditLogs.id, oldLog.id));
+    expect(oldFound.length).toBe(0);
+
+    // Verify fresh log is preserved
+    const newFound = await db
+      .select()
+      .from(platformAuditLogs)
+      .where(eq(platformAuditLogs.id, newLog.id));
+    expect(newFound.length).toBe(1);
+
+    // Cleanup fresh log
+    await db.delete(platformAuditLogs).where(eq(platformAuditLogs.id, newLog.id));
   });
 });

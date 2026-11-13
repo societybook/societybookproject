@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import ws from "ws";
 import * as schema from "./schema";
 
 if (!process.env.DATABASE_URL && existsSync(".env.local")) {
@@ -13,8 +14,13 @@ if (!connectionString) {
   throw new Error("DATABASE_URL environment variable is not set");
 }
 
-const sql = neon(connectionString);
+// Required for Node.js / non-browser environments when using WebSockets with Neon
+if (typeof WebSocket === "undefined") {
+  neonConfig.webSocketConstructor = ws;
+}
 
-export const db = drizzle(sql, { schema });
+const pool = new Pool({ connectionString });
+
+export const db = drizzle(pool, { schema });
 export type Database = typeof db;
 

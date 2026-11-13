@@ -8,3 +8,4 @@ export async function GET() {
     return Response.json({ user: null }, { status: 401 });
   }
 }
+

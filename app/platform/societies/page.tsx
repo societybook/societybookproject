@@ -1,9 +1,10 @@
 import { db } from "@/db";
-import { societies, societyLimits, plans } from "@/db/schema";
+import { societies, societyLimits, plans, subscriptions } from "@/db/schema";
 import { requirePlatformAdmin } from "@/lib/auth/context";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { SocietiesClient } from "@/components/platform/SocietiesClient";
+import { reconcileExpiredSubscriptions } from "@/lib/subscriptions";
 
 export const instant = false;
 
@@ -11,8 +12,11 @@ export default async function PlatformSocietiesPage() {
   try {
     await requirePlatformAdmin();
   } catch {
-    redirect("/login");
+    redirect("/platform-login");
   }
+
+  // Automatically check and reconcile any expired subscriptions & suspend societies
+  await reconcileExpiredSubscriptions();
 
   const societyRows = await db
     .select({
@@ -26,9 +30,14 @@ export default async function PlatformSocietiesPage() {
       createdAt: societies.createdAt,
       maxFlats: societyLimits.maxFlats,
       maxUsers: societyLimits.maxUsers,
+      subStartsAt: subscriptions.startsAt,
+      subExpiresAt: subscriptions.expiresAt,
+      subStatus: subscriptions.status,
     })
     .from(societies)
-    .leftJoin(societyLimits, eq(societyLimits.societyId, societies.id));
+    .leftJoin(societyLimits, eq(societyLimits.societyId, societies.id))
+    .leftJoin(subscriptions, eq(subscriptions.societyId, societies.id))
+    .orderBy(desc(societies.createdAt));
 
   const planOptions = await db
     .select({
@@ -45,6 +54,8 @@ export default async function PlatformSocietiesPage() {
   const serializedSocieties = societyRows.map((s) => ({
     ...s,
     createdAt: s.createdAt.toISOString(),
+    subStartsAt: s.subStartsAt ? s.subStartsAt.toISOString() : null,
+    subExpiresAt: s.subExpiresAt ? s.subExpiresAt.toISOString() : null,
   }));
 
   return (
